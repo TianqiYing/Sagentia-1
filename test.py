@@ -41,13 +41,18 @@ initial_positions = np.linspace(0, spring_length, n)
 
 u = np.zeros((n, N))
 v = np.zeros((n, N))
+a = np.zeros((n, N))
 
 u[:, 0] = initial_positions
+
+# things to track
+
 
 for i in range(1, N): # keep track of i for future for loops
     if u[-1, i-1] < ds:
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
         S[-1] = S[-1]*m/M
+        a[:, i] = S
         v[:, i] = S*dt + v[:, i - 1]
         u[:, i] = v[:,i]*dt + u[:, i-1]
         u[0, i] = 0
@@ -66,6 +71,7 @@ for i in range(end_phase1, N):
     if u[-1, i-1] < df:
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
         S[-1] = S[-1]*m/M
+        a[:, i] = S
         v[:, i] = S*dt + v[:, i - 1]
         u[:, i] = v[:,i]*dt + u[:, i-1]
         u[0, i] = 0
@@ -84,6 +90,7 @@ for i in range(end_phase2, N):
     if u[-1, i-1] < dm:
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
         S[-1] = S[-1]*m/M
+        a[:, i] = S
         v[:, i] = S*dt + v[:, i - 1]
         u[:, i] = v[:,i]*dt + u[:, i-1]
         u[0, i] = 0
@@ -102,6 +109,7 @@ for i in range(end_phase2, N):
     if u[-1, i-1] < di:
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
         S[-1] = S[-1]*m/M
+        a[:, i] = S
         v[:, i] = S*dt + v[:, i - 1]
         u[:, i] = v[:,i]*dt + u[:, i-1]
         u[0, i] = 0
@@ -110,6 +118,8 @@ for i in range(end_phase2, N):
 
 end_phase3 = i
 u = u[:, 0:end_phase3]
+v = v[:, 0:end_phase3]
+a = a[:, 0:end_phase3]
 
 # animating
 total_steps = i
@@ -135,6 +145,25 @@ plt.plot([i for i in range(end_phase3)], u[-1, :])
 plt.xlabel("Time in seconds")
 plt.ylabel("Displacement of syringe")
 plt.show()
+
+print(len(u[-1, :]), len(v[-1, :]))
+
+plt.plot([i for i in range(end_phase3)], v[-1, :])
+plt.xlabel("Time in seconds")
+plt.ylabel("Velocity of syringe")
+plt.show()
+
+plt.plot([i for i in range(end_phase3)], a[-1, :])
+plt.xlabel("Time in seconds")
+plt.ylabel("Acceleration of syringe")
+plt.show()
+
+plt.plot([i for i in range(end_phase3)], M*a[-1, :])
+plt.xlabel("Time in seconds")
+plt.ylabel("Force of syringe")
+plt.show()
+
+
 
 
 

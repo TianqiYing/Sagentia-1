@@ -8,6 +8,7 @@ n = 10
 k =  1
 l = 1
 m = 1
+M = 5
 ds = 2
 df = 3
 dm = 4
@@ -46,6 +47,7 @@ u[:, 0] = initial_positions
 for i in range(1, N): # keep track of i for future for loops
     if u[-1, i-1] < ds:
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
+        S[-1] = S[-1]*m/M
         v[:, i] = S*dt + v[:, i - 1]
         u[:, i] = v[:,i]*dt + u[:, i-1]
         u[0, i] = 0
@@ -63,6 +65,7 @@ B_DD[-1] = k*l + mu_s*ds
 for i in range(end_phase1, N):
     if u[-1, i-1] < df:
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
+        S[-1] = S[-1]*m/M
         v[:, i] = S*dt + v[:, i - 1]
         u[:, i] = v[:,i]*dt + u[:, i-1]
         u[0, i] = 0
@@ -80,6 +83,7 @@ B_DD[-1] = k*l - mu_s*(df - ds) + mu_f*df
 for i in range(end_phase2, N):
     if u[-1, i-1] < dm:
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
+        S[-1] = S[-1]*m/M
         v[:, i] = S*dt + v[:, i - 1]
         u[:, i] = v[:,i]*dt + u[:, i-1]
         u[0, i] = 0
@@ -97,6 +101,7 @@ B_DD[-1] = k*l - mu_s*(df - ds) - mu_f*(dm - df) + mu_m*dm
 for i in range(end_phase2, N):
     if u[-1, i-1] < di:
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
+        S[-1] = S[-1]*m/M
         v[:, i] = S*dt + v[:, i - 1]
         u[:, i] = v[:,i]*dt + u[:, i-1]
         u[0, i] = 0
@@ -126,6 +131,10 @@ ani = animation.FuncAnimation(fig, update, frames=range(0, total_steps, 2),
 
 plt.show()
 
+plt.plot([i for i in range(end_phase3)], u[-1, :])
+plt.xlabel("Time in seconds")
+plt.ylabel("Displacement of syringe")
+plt.show()
 
 
 

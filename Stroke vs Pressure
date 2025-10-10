@@ -1,0 +1,112 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# -----------------------------
+# Parameters
+# -----------------------------
+N = 20
+k_total = 900.0
+m_s_total = 0.015        # total effective spring mass [kg]
+k_e = N * k_total        # element stiffness
+m_e = m_s_total / N      # mass per internal node
+c_p = 2.0                # mechanism viscous friction [N·s/m]
+C_f = 140.0
+alpha = 1.0 / (C_f + c_p)
+F_S = 8.0               # static friction / seal breakaway [N]
+stroke = 0.014           # plunger stroke [m]
+t_max = 0.6              # simulation cutoff [s]
+t_end = 0.5
+
+# Stable central-difference time step
+omega_max = 2.0 * (k_e / m_e) ** 0.5
+dt = min(1.0 / (200.0 * omega_max), 2e-5)
+dt = max(dt, 1e-5)
+a0 = 40.0            # small mass-proportional damping [1/s] (numerical)
+
+def simulate_full(x0, c_s, C_f, record_force=False, window_after_break=0.04):
+    """
+    Run to t_end and return:
+      x_p_end: final plunger position (global coords) → can compute delivered stroke
+      ripple_env: end-force envelope amplitude (RMS*sqrt(2)) over the window after breakaway.
+                  NaN if no recording or no breakaway.
+    """
+    alpha = 1.0 / (C_f + c_p)
+
+    # Preload-compatible initial state
+    x_p = -x0
+    v_p = 0.0
+    q      = np.linspace(0.0, -x0, N+1)
+    q_prev = q.copy()
+    t = 0.0
+
+    broke = False
+    t_break = None
+
+    F_list, T_list = ([] , []) if record_force else (None, None)
+
+    while t < t_end:
+        # Boundaries
+        q[0] = 0.0
+        q[-1] = x_p
+
+        # Central difference step
+        lap_q = (q[:-2] - 2.0*q[1:-1] + q[2:])
+        q_new = q.copy()
+        q_new[1:-1] = ((2.0 - a0*dt) * q[1:-1]
+                       - (1.0 - a0*dt) * q_prev[1:-1]
+                       + (k_e/m_e) * lap_q * (dt*dt))
+
+        # End force (with internal viscous loss c_s)
+        v_right = (q_new[-2] - q[-2]) / dt
+        F_s = k_e*(q_new[-2] - x_p) + c_s*(v_right - v_p)
+
+        # Plunger algebraic mapping (delivery)
+        v_new = alpha*(F_s - F_S)
+        if v_new < 0.0:
+            v_new = 0.0
+
+        if (not broke) and v_new > 1e-6:
+            broke = True
+            t_break = t
+
+        v_p = v_new
+        x_p += v_p * dt
+
+        if record_force:
+            F_list.append(F_s)
+            T_list.append(t)
+
+        q_prev, q = q, q_new
+        t += dt
+
+    # Force envelope: RMS*sqrt(2) in the first 'window_after_break' seconds after breakaway
+    ripple_env = np.nan
+    if record_force and broke and (t_break is not None):
+        T = np.array(T_list); F = np.array(F_list)
+        mask = (T >= t_break) & (T <= t_break + window_after_break)
+        if mask.any():
+            seg = F[mask] - np.mean(F[mask])
+            ripple_env = float(np.sqrt(np.mean(seg**2)) * np.sqrt(2.0))
+
+    return x_p, ripple_env
+
+C_f_fixed = 140.0
+c_s_fixed = 10.0
+x0_values = np.linspace(0.006, 0.020, 10)  # 6–20 mm
+
+delivered = []
+for x0 in x0_values:
+    x_end, _ = simulate_full(x0, c_s_fixed, C_f_fixed, record_force=False)
+    # Delivered stroke = (final plunger position) - (initial position -x0); clip to [0, stroke]
+    delivered_stroke = np.clip(x_end + x0, 0.0, stroke)
+    delivered.append(delivered_stroke)
+
+plt.figure()
+plt.plot(x0_values*1e3, np.array(delivered)*1e3, marker="o")
+plt.xlabel("Preload x0 (mm)")
+plt.ylabel("Delivered stroke after 0.5 s (mm)")
+plt.title(f"Delivered stroke vs preload x0 (c_s={c_s_fixed} N·s/m, C_f={C_f_fixed} N·s/m)")
+plt.grid(True)
+plt.tight_layout()
+plt.savefig("delivered_stroke_vs_x0.png", dpi=180)
+plt.show()

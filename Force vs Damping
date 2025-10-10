@@ -1,0 +1,100 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# -----------------------------
+# Parameters
+# -----------------------------
+N = 20
+k_total = 900.0
+m_s_total = 0.015        # total effective spring mass [kg]
+k_e = N * k_total        # element stiffness
+m_e = m_s_total / N      # mass per internal node
+c_p = 2.0                # mechanism viscous friction [N·s/m]
+C_f = 140.0
+alpha = 1.0 / (C_f + c_p)
+F_S = 8.0               # static friction / seal breakaway [N]
+stroke = 0.014           # plunger stroke [m]
+t_max = 0.6              # simulation cutoff [s]
+
+omega_max = 2.0 * (k_e / m_e) ** 0.5
+dt = min(1.0 / (200.0 * omega_max), 2e-5)
+dt = max(dt, 1e-5)
+
+# Small mass-proportional damping (numerical)
+a0 = 50.0  # [1/s] try 20–100 if needed
+
+def simulate(x0, c_s, measure_ripple_window=0.02):
+    assert x0 < 0.05, "x0 should be in meters (e.g., 0.012 for 12 mm)."
+
+    # preload-compatible initial state
+    x_p = -x0; v_p = 0.0
+    q = np.linspace(0.0, -x0, N + 1)
+    q_prev = q.copy()
+    t = 0.0
+
+    F_s_hist, t_hist = [], []
+    break_time = None
+    done_time = None
+
+    while t < t_max:
+        q[0] = 0.0
+        q[-1] = x_p
+
+        lap_q = (q[:-2] - 2.0*q[1:-1] + q[2:])
+        # central difference update with small mass-proportional damping
+        q_new = q.copy()
+        q_new[1:-1] = ((2.0 - a0*dt) * q[1:-1]
+                       - (1.0 - a0*dt) * q_prev[1:-1]
+                       + (k_e/m_e) * lap_q * (dt*dt))
+
+        # end force at plunger
+        v_right_node = (q_new[-2] - q[-2]) / dt
+        F_s = k_e * (q_new[-2] - x_p) + c_s * (v_right_node - v_p)
+
+        # guard against blow-up
+        if abs(F_s) > 1e4:
+            return float('inf'), float('nan'), False
+
+        # plunger algebraic mapping (delivery-like)
+        v_p = max(0.0, alpha * (F_s - F_S))
+        x_p += v_p * dt
+
+        t_hist.append(t); F_s_hist.append(F_s)
+        if break_time is None and v_p > 1e-6:
+            break_time = t
+        if x_p >= stroke:
+            done_time = t
+            break
+
+        q_prev, q = q, q_new
+        t += dt
+
+    # ripple metric in first 20 ms after breakaway
+    ripple_pp = float('nan')
+    if break_time is not None:
+        F_s_hist = np.array(F_s_hist); t_hist = np.array(t_hist)
+        mask = (t_hist >= break_time) & (t_hist <= break_time + measure_ripple_window)
+        if mask.any():
+            vals = F_s_hist[mask]
+            ripple_pp = float(vals.max() - vals.min())
+
+    T_inj = done_time if done_time is not None else float('inf')
+    return T_inj, ripple_pp, (break_time is not None)
+
+# sweep and plot
+c_s_sweep = np.linspace(0.0, 60.0, 12)
+x0_fixed = 0.012
+ripples = []
+for c_s in c_s_sweep:
+    T_inj, ripple_pp, _ = simulate(x0=x0_fixed, c_s=c_s, measure_ripple_window=0.02)
+    ripples.append(ripple_pp)
+
+plt.figure()
+plt.plot(c_s_sweep, np.array(ripples), marker="o")
+plt.xlabel("Internal damping c_s (N·s/m)")
+plt.ylabel("End-force ripple ΔF_pp in first 20 ms (N)")
+plt.title(f"Force ripple vs c_s (x0 = {x0_fixed*1e3:.0f} mm, F_S={F_S:.1f} N)")
+plt.grid(True)
+plt.tight_layout()
+plt.savefig("force_ripple_vs_cs_fixed.png", dpi=180)
+plt.show()

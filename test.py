@@ -5,7 +5,7 @@ import matplotlib.animation as animation
 
 # for simple 3 mass system
 n = 10
-k =  1
+k =  10
 l = 1
 m = 1
 M = 5
@@ -35,8 +35,8 @@ B_DD = np.zeros(n)
 B_DD[0] = -k*l
 B_DD[-1] = k*l
 
-dt = 0.1
-N = 1000
+dt = 0.01
+N = 10000
 initial_positions = np.linspace(0, spring_length, n)
 
 u = np.zeros((n, N))
@@ -53,8 +53,8 @@ for i in range(1, N): # keep track of i for future for loops
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
         S[-1] = S[-1]*m/M
         a[:, i] = S
-        v[:, i] = S*dt + v[:, i - 1]
-        u[:, i] = v[:,i]*dt + u[:, i-1]
+        v[:, i] = a[:, i - 1] * dt + v[:, i - 1]
+        u[:, i] = v[:, i - 1] * dt + u[:, i - 1]
         u[0, i] = 0
     else:
         break
@@ -72,8 +72,8 @@ for i in range(end_phase1, N):
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
         S[-1] = S[-1]*m/M
         a[:, i] = S
-        v[:, i] = S*dt + v[:, i - 1]
-        u[:, i] = v[:,i]*dt + u[:, i-1]
+        v[:, i] = a[:, i - 1] * dt + v[:, i - 1]
+        u[:, i] = v[:, i - 1] * dt + u[:, i - 1]
         u[0, i] = 0
     else:
         break
@@ -91,8 +91,8 @@ for i in range(end_phase2, N):
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
         S[-1] = S[-1]*m/M
         a[:, i] = S
-        v[:, i] = S*dt + v[:, i - 1]
-        u[:, i] = v[:,i]*dt + u[:, i-1]
+        v[:, i] = a[:, i - 1] * dt + v[:, i - 1]
+        u[:, i] = v[:, i - 1] * dt + u[:, i - 1]
         u[0, i] = 0
     else:
         break
@@ -110,8 +110,8 @@ for i in range(end_phase2, N):
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
         S[-1] = S[-1]*m/M
         a[:, i] = S
-        v[:, i] = S*dt + v[:, i - 1]
-        u[:, i] = v[:,i]*dt + u[:, i-1]
+        v[:, i] = a[:, i - 1] * dt + v[:, i - 1]
+        u[:, i] = v[:, i - 1] * dt + u[:, i - 1]
         u[0, i] = 0
     else:
         break
@@ -164,8 +164,15 @@ plt.ylabel("Force of syringe")
 plt.show()
 
 
-
-
+# Summarising ODE system
+#
+# Modelled the spring as a series of spring-mass chains. This is beneficial since it allows the modelling of wave propagation through the spring which will be a factor in the case of the epipen. With a simple model of one spring and one mass we are unable to see what happens within the spring.
+#
+# The lagrangian was used to create ODE’s for the motion of each mass in the chain. Where potential energy is dependant on the extension or compression of springs either side of the mass and the kinetic energy was calculated using the second derivative of displacement wrt t. Important to note that the final mass in the chain is the mass of the syringe. The rest of the masses are the mass of the spring divided by the number of spring-mass chains distributed.
+#
+# This creates a system of ODE’s where each ODE describes the displacement of a mass from its initial position.
+#
+# To model the motion of the spring through the persons leg, three constants were used to consider the friction against the needle whilst it goes through the skin, fat and muscle. The system of ODE’s now has four stages (loaded to touching leg, going through skin, going through fat and going through muscle). The resistance from the skin, fat or muscle was modelled as proportional to the distance the needle is through the layer since the needle is now in contact with more of this material.
 
 
 

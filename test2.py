@@ -35,8 +35,8 @@ B_DD = np.zeros(n)
 B_DD[0] = -k*l
 B_DD[-1] = k*l
 
-dt = 0.1
-N = 1000
+dt = 0.01
+N = 10000
 initial_positions = np.linspace(0, spring_length, n)
 
 u = np.zeros((n, N))
@@ -53,8 +53,8 @@ for i in range(1, N): # keep track of i for future for loops
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
         S[-1] = S[-1]*m/M
         a[:, i] = S
-        v[:, i] = S*dt + v[:, i - 1]
-        u[:, i] = v[:,i]*dt + u[:, i-1]
+        v[:, i] = a[:, i-1]*dt + v[:, i - 1]
+        u[:, i] = v[:,i-1]*dt + u[:, i-1]
         u[0, i] = 0
     else:
         break
@@ -78,8 +78,8 @@ for i in range(end_phase1, N):
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
         S[-1] = S[-1]*m/M
         a[:, i] = S
-        v[:, i] = S*dt + v[:, i - 1]
-        u[:, i] = v[:,i]*dt + u[:, i-1]
+        v[:, i] = a[:, i-1]*dt + v[:, i - 1]
+        u[:, i] = v[:,i-1]*dt + u[:, i-1]
         u[0, i] = 0
     else:
         break
@@ -98,8 +98,8 @@ for i in range(end_phase2, N):
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
         S[-1] = S[-1]*m/M
         a[:, i] = S
-        v[:, i] = S*dt + v[:, i - 1]
-        u[:, i] = v[:,i]*dt + u[:, i-1]
+        v[:, i] = a[:, i - 1] * dt + v[:, i - 1]
+        u[:, i] = v[:, i - 1] * dt + u[:, i - 1]
         u[0, i] = 0
     else:
         break
@@ -117,8 +117,8 @@ for i in range(end_phase2, N):
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
         S[-1] = S[-1]*m/M
         a[:, i] = S
-        v[:, i] = S*dt + v[:, i - 1]
-        u[:, i] = v[:,i]*dt + u[:, i-1]
+        v[:, i] = a[:, i - 1] * dt + v[:, i - 1]
+        u[:, i] = v[:, i - 1] * dt + u[:, i - 1]
         u[0, i] = 0
     else:
         break

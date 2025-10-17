@@ -5,21 +5,21 @@ import matplotlib.animation as animation
 
 # for simple 3 mass system
 n = 100
-k =  10
-l = 1
-m = 0.5
-M = 5
-ds = 2
-df = 3
-dm = 4
-di = 4.5
-mu_s = 1
-mu_f = 0.5
-mu_m = 2
-spring_length = 1
+k =  0.3 # was 10
+l = 60  # was 1
+m = 1.8e-3/n # was 0.5
+M = 0.02 # was 5 need to make this more accurate but its ok for now
+ds = 2 # was 2
+df = ds + 2.5 # was 3
+dm = df + 10 # was 4 this is waff
+di = 16 # was 4.5
+mu_s = 2 # this was 1, need to reference that another time
+mu_f = 0.3 # this was 0.5 need to reference
+mu_m = 1.2 # was 2, need to reference this
+spring_length = 35 # was 1 complete waff
 
 # plunger part
-N = 1
+Nf = 1
 mu_k = 1
 C_p = 1
 A_p = 1
@@ -141,7 +141,7 @@ Q = A_p*v[-1, i - 1]
 
 for i in range(end_phase3, N): # keep track of i for future for loops
     if Q*i*dt < volume_of_fluid: # change condition to something abt v ? ?
-        B_DD[-1] = k*l + N*mu_k + A_p*delta_p + C_p*v[-1, i - 1]
+        B_DD[-1] = k*l + Nf*mu_k + A_p*delta_p + C_p*v[-1, i - 1]
         S = 1/m * ((A_DD@u)[:, i-1] + B_DD)
         S[-1] = S[-1]*m/M
         a[:, i] = S

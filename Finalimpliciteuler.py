@@ -142,8 +142,13 @@ end_phase4 = i
 
 Q = A_p*v[-1, i - 1]
 
+mu = 1 # fluid viscocity
+L = 1 # L = needle length
+r = 1 # needle radius
+
 for i in range(end_phase4, N): # keep track of i for future for loops
     if Q*i*dt < volume_of_fluid: # change condition to something abt v ? ?
+        delta_p = 8*mu*L*Q / np.pi*r**4
         B_DD[-1] = k*l + Nf*mu_k + A_p*delta_p + C_p*v[-1, i - 1]
         LHS = np.eye(n) - dt**2 * np.linalg.inv(mass_matrix) @ A_DD
         RHS = u[:, i-1] + dt*v[:, i-1] + dt**2 * np.linalg.inv(mass_matrix) @ B_DD

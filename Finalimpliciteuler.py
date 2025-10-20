@@ -19,11 +19,10 @@ mu_m = 300 # was 2, need to reference this
 spring_length = 0.035 # was 1 complete waff
 
 # plunger part
-Nf = 1
-mu_k = 1
-C_p = 1
-A_p = 1
-delta_p = 1
+Nf = 1 # normal force of seal against syringe
+mu_k = 1 # coefficient of friction for seal of syringe
+C_p = 1 # coefficicient for viscous damping
+A_p = 1 # cross sectional area of syringe
 volume_of_fluid = 1
 
 

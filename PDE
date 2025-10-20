@@ -1,0 +1,86 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Parameters
+E_s = 60e9        # Pa
+rho_s = 7800.0      # kg/m^3
+eta = 2.0e5       # Pa·s (Kelvin–Voigt viscosity)
+A_s = 1.0e-8      # m^2
+L = 0.06        # m
+
+c0_sq = E_s / rho_s
+betaKV = eta / rho_s
+
+# Time grid
+t_end = 0.2
+dt = 2e-5
+t = np.arange(0.0, t_end + dt, dt)
+Nt = len(t)
+
+# Right-end drive: u(L,t) = x_p(t)
+v_set, t0, tau_r, t_hold, x0p = 0.02, 0.01, 0.005, 0.12, 0.0
+def vel_profile(tt):
+    up = 0.5*(1 + np.tanh((tt - t0)/tau_r))      # ramp up
+    hold = 0.5*(1 - np.tanh((tt - t_hold)/tau_r))  # ramp down to zero
+    return v_set * up * hold
+
+xdot = vel_profile(t)              # \dot{x}_p(t)
+x_p = x0p + np.cumsum(xdot)*dt    # x_p(t)
+xpp = np.zeros_like(xdot)         # \ddot{x}_p(t)
+xpp[1:-1] = (xdot[2:] - 2*xdot[1:-1] + xdot[:-2]) / (dt**2)
+xpp[0] = xpp[1]; xpp[-1] = xpp[-2]
+
+Nm = 40
+pi = np.pi
+n = np.arange(1, Nm+1)
+lam = (n*pi/L)**2
+g_n = -2.0 * (-1.0)**n / (n*np.pi)
+
+betaN, gammaN = 0.25, 0.5
+
+q = np.zeros((Nm, Nt))   # modal coordinates
+qd = np.zeros((Nm, Nt))   # modal velocities
+ad = np.zeros((Nm, Nt))   # modal accelerations
+ad[:, 0] = g_n * xpp[0]    # initial accel (q=qd=0 at t=0)
+
+for k in range(Nt-1):
+    fk = g_n * xpp[k]
+    fk1 = g_n * xpp[k+1]
+    for i in range(Nm):
+        M = 1.0
+        C = betaKV * lam[i]
+        K = c0_sq * lam[i]
+
+        # predictor from state at k
+        a_k = (fk[i] - C*qd[i, k] - K*q[i, k]) / M
+        q_pred = q[i, k] + dt*qd[i, k] + (0.5 - betaN)*dt*dt*a_k
+        v_pred = qd[i, k] + (1.0 - gammaN)*dt*a_k
+
+        # corrector (solve for a_{k+1})
+        Meff = M + gammaN*dt*C + betaN*dt*dt*K
+        a_k1 = (fk1[i] - C*v_pred - K*q_pred) / Meff
+
+        # update to k+1
+        q[i, k+1] = q_pred + betaN*dt*dt*a_k1
+        qd[i, k+1] = v_pred + gammaN*dt*a_k1
+        ad[i, k+1] = a_k1
+
+# End force from PDE
+EA_over_L = E_s*A_s / L
+etaA_over_L = eta*A_s / L
+coef_n = (n*pi)/L
+sign_n = (-1.0)**n
+
+Fs = EA_over_L * x_p + etaA_over_L * xdot
+Fs += np.sum((E_s*A_s)*(coef_n[:, None]*sign_n[:, None]*q), axis=0)
+Fs += np.sum((eta*A_s)*(coef_n[:, None]*sign_n[:, None]*qd), axis=0)
+
+# Plot F_s(t)
+plt.figure(figsize=(12, 6))
+plt.plot(t, Fs)
+plt.xlabel("Time (s)")
+plt.ylabel("End force F_s(t) (N)")
+plt.title("End force from Kelvin–Voigt rod (PDE modal solution)")
+plt.grid(True)
+plt.tight_layout()
+plt.show()

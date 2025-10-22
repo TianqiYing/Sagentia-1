@@ -7,7 +7,7 @@ import matplotlib.animation as animation
 n = 10
 k =  1500 # was 10
 l = 60e-3  # was 1
-m = 1.8e-3 # was 0.5
+m = 0.0066 / n # was 0.5
 M = 0.02 # was 5 need to make this more accurate but its ok for now
 ds = 2e-3 # was 2
 df = ds + 2.5e-3 # was 3
@@ -19,11 +19,11 @@ mu_m = 300 # was 2, need to reference this
 spring_length = 0.035 # was 1 complete waff
 
 # plunger part
-Nf = 1 # normal force of seal against syringe
+Nf = 2 # normal force of seal against syringe -- need to add 'break free' force
 mu_k = 1 # coefficient of friction for seal of syringe
 C_p = 1 # coefficicient for viscous damping
-A_p = 1 # cross sectional area of syringe
-volume_of_fluid = 1
+A_p = 5.88e-5 # cross sectional area of syringe
+volume_of_fluid = 0.3e-3
 
 
 A_DD = np.zeros((n, n))
@@ -53,16 +53,19 @@ v = np.zeros((n, N))
 a = np.zeros((n, N))
 
 u[:, 0] = initial_positions
-
+Ms = 0.02
+Mp = 0.02
+eta = 1e-3
+L = 0.02
 # Create mass matrix
-mass_matrix = np.diag([m]*(n-1) + [M])
+mass_matrix = np.diag([m]*(n-2) + [Mp] + [Mp])
 
 # things to track
-
 
 for i in range(1, N): # keep track of i for future for loops
     if u[-1, i-1] < ds:
         # Implicit Euler: (I - dt^2 * M^-1 * A) * u[i] = u[i-1] + dt*v[i-1]
+        B_DD[-1] = k*l + (A_p*eta*(v[-1, i] - v[-1, i-1])) / L
         LHS = np.eye(n) - dt**2 * np.linalg.inv(mass_matrix) @ A_DD
         RHS = u[:, i-1] + np.linalg.inv(mass_matrix)@dt*v[:, i-1] + dt**2 * np.linalg.inv(mass_matrix) @ B_DD
         u[:, i] = np.linalg.solve(LHS, RHS)
@@ -77,16 +80,15 @@ end_phase1 = i
 
 # part where it enters skin
 
-f_max = 3
-u_puncture = 2.2
+f_max = 10
+u_puncture = 1e-3
 s = 0.5
 
 for i in range(end_phase1, N):
     if u[-1, i-1] < df:
         z = s*(u[-1, i-1] - ds - u_puncture)
         A_DD[-1, -1] = -k - mu_s*np.tanh(z)
-        B_DD[-1] = k * l + ds*mu_s*(np.tanh(z)) + f_max*(1-np.tanh(z))
-
+        B_DD[-1] = k * l + ds*mu_s*(np.tanh(z)) + f_max*(1-np.tanh(z)) + (A_p * eta * (v[-1, i] - v[-1, i - 1])) / L
         LHS = np.eye(n) - dt**2 * np.linalg.inv(mass_matrix) @ A_DD
         RHS = u[:, i-1] + dt*v[:, i-1] + dt**2 * np.linalg.inv(mass_matrix) @ B_DD
         u[:, i] = np.linalg.solve(LHS, RHS)
@@ -103,12 +105,13 @@ end_phase2 = i
 
 
 A_DD[-1, -1] = -k - mu_f
-B_DD[-1] = k*l - mu_s*(df - ds) + mu_f*df
+
 
 for i in range(end_phase2, N):
     if u[-1, i-1] < dm:
         LHS = np.eye(n) - dt**2 * np.linalg.inv(mass_matrix) @ A_DD
         RHS = u[:, i-1] + dt*v[:, i-1] + dt**2 * np.linalg.inv(mass_matrix) @ B_DD
+        B_DD[-1] = k*l - mu_s*(df - ds) + mu_f*df + (A_p * eta * (v[-1, i] - v[-1, i - 1])) / L
         u[:, i] = np.linalg.solve(LHS, RHS)
         u[0, i] = 0
         v[:, i] = (u[:, i] - u[:, i-1])/dt
@@ -122,7 +125,7 @@ end_phase3 = i
 # moving onto muscle through to point of injection
 
 A_DD[-1, -1] = -k - mu_m
-B_DD[-1] = k*l - mu_s*(df - ds) - mu_f*(dm - df) + mu_m*dm
+B_DD[-1] = k*l - mu_s*(df - ds) - mu_f*(dm - df) + mu_m*dm + (A_p*eta*(v[-1, i] - v[-1, i-1])) / L
 
 for i in range(end_phase3, N):
     if u[-1, i-1] < di:
@@ -141,9 +144,10 @@ end_phase4 = i
 
 Q = A_p*v[-1, i - 1]
 
-mu = 1 # fluid viscocity
-L = 1 # L = needle length
-r = 1 # needle radius
+mu = 0.00089 # fluid viscocity
+L = 16e-3 # L = needle length
+r = 0.135e-3 # needle radius
+
 
 for i in range(end_phase4, N): # keep track of i for future for loops
     if Q*i*dt < volume_of_fluid: # change condition to something abt v ? ?

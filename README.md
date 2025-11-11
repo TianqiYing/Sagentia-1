@@ -19,19 +19,19 @@ The repository includes all scripts, simulation files, and data used in the mode
 
 | File | Description |
 |------|--------------|
-| `FinalModel.py` |  |
-| `Finalimpliciteuler.py` |  |
-| `KelvinVoigtModel.py` |  |
-| `KelvinVoigtExplicit.py` |  |
-| `KVexplicitlywithoutairgap.py` |  |
-| `Findingparameters.py` |  |
-| `Force vs Damping.py` |  |
-| `Stroke vs Pressure.py` |  |
-| `fluid2.py` |  |
-| `fluid3.py` |  |
+| `FinalModel.py` | NOT FINAL | 
+| `Finalimpliciteuler.py` | Implicitly solving |
+| `KelvinVoigtModel.py` | First draft  |
+| `KelvinVoigtExplicit.py` | Using explicit euler |
+| `KVexplicitlywithoutairgap.py` | Modelling spring dashpot model without an airgap |
+| `Findingparameters.py` | Shows how fluid injected varies with parameters |
+| `Force vs Damping.py` | Plotting force on needle against resistance |
+| `Stroke vs Pressure.py` | Plotting stroke vs Pressure  |
+| `fluid2.py` | An iteration of a differential equation describing fluid flow through needle |
+| `fluid3.py` | An iteration of a differential equation describing fluid flow through needle |
 | `0211.py` |  |
 | `0211settingchanges.py` |  |
-| `PDE` |  |
+| `PDE` | Approximating the continuous model expressed as a partial differential equation |
 | `README.md` | Project overview and documentation. |
 
 ---

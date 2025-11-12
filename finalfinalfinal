@@ -1,0 +1,408 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+def run_simulation(k_factor, Ln_value):
+    """
+    Run the complete simulation with all stages for given parameters,
+    under the physical assumption that REAL injection (non-zero flow)
+    happens ONLY in Phase 5.
+
+    Returns:
+        injection_time   : time when simulation ends (or when injection finishes) [s]
+        final_volume     : total injected volume [m^3]
+        injection_phase  : phase index (1..5) where injection completed; 0 if not completed
+        Q_history        : array of instantaneous flow rate Q(t_k) [m^3/s] for all time steps
+    """
+    n = 10
+    k = k_factor * 1500 * (n - 2)  # spring constant, n-2 since we have a dashpot
+    l = 60e-3 / (n - 2)            # natural length of springs
+    mass = 1.8e-3 / (n - 2)        # mass of each small mass in chain
+
+    # geometry of tissue layers
+    ds = 1e-3                      # distance of needle to skin
+    df = ds + 1.55e-3              # distance to end of skin
+    dm = df + 10e-3                # distance to end of fat
+    di = 16e-3                     # distance from muscle surface to injection point
+
+    # tissue stiffness
+    mu_s = 1000                    # stiffness of skin
+    mu_f = 20000                   # stiffness of fat
+    mu_m = 100000                  # stiffness of muscle
+
+    # plunger / barrel masses
+    Mp = 0.002
+    Ms = 0.01
+
+    # Mass matrix
+    m = np.diag([mass] * (n - 2) + [Mp] + [Ms])
+
+    # fluid & seal parameters
+    eta = 10000        # viscosity-like coefficient between plunger & barrel
+    Nf = 8             # normal force of seal against syringe
+    mu_k = 0.5         # coefficient of friction for seal of syringe
+    C_p = 0.033        # viscous damping at plunger
+    A_p = 5.88e-5      # cross sectional area of syringe
+    volume_of_fluid = 0.3e-6  # target volume to inject [m^3]
+    mu = 0.00089       # fluid viscosity
+    Ln = Ln_value      # needle length (m)
+    r = 0.205e-3       # needle radius
+    L = 34e-3          # fluid column length in barrel
+
+    # skin puncture law
+    f_max = 150000        # max resistive force of skin before its punctured
+    u_puncture = 2.2e-3   # displacement of skin before puncture
+    s = 1.0               # sharpness of tanh transition
+
+    F_friction = Nf * mu_k
+
+    # stiffness matrix for the mass-spring chain
+    A_DD = np.zeros((n, n))
+    for idx in range(n):
+        if idx == 0:
+            A_DD[idx, idx] = -k
+            A_DD[idx, idx + 1] = k
+        elif idx == n - 2:
+            A_DD[idx, idx] = -k
+            A_DD[idx, idx - 1] = k
+        elif idx == n - 1:
+            # no spring connecting to barrel
+            continue
+        else:
+            A_DD[idx, idx] = -2 * k
+            A_DD[idx, idx - 1] = k
+            A_DD[idx, idx + 1] = k
+
+    B_DD = np.zeros(n)
+    B_DD[0] = k * l
+
+    dt = 1e-6
+    N = 1_000_000  # total time steps (up to 1 s)
+
+    u = np.zeros((n, N))
+    v = np.zeros((n, N))
+    a = np.zeros((n, N))
+
+    total_volume = 0.0
+    Q_history = np.zeros(N)
+
+    # in which phase injection completed: 0 = not completed, 5 = only possible in phase 5
+    injection_phase = 0
+
+    # gating: only phase 5 is allowed to inject
+    def injection_allowed(phase_idx):
+        return (phase_idx == 5)
+
+    # ---------------------------
+    # Phase 1: before reaching skin
+    # ---------------------------
+    phase = 1
+    for i in range(1, N):
+        if u[-1, i - 1] >= ds:
+            break
+
+        # plunger/barrel coupling
+        B_DD[-2] = k * l + A_p * eta / L * (v[-1, i - 1] - v[-2, i - 1])
+        B_DD[-1] = -A_p * eta / L * (v[-1, i - 1] - v[-2, i - 1])
+
+        # forces without friction
+        forces = A_DD @ u[:, i - 1] + B_DD
+
+        # slip or stick
+        if abs(forces[-2]) >= F_friction:
+            v_rel = v[-2, i - 1] - v[-1, i - 1]  # plunger vs barrel
+
+            # phase 1: no injection
+            if injection_allowed(phase):
+                Q = max(v_rel * A_p, 0.0)
+                total_volume += Q * dt
+                Q_history[i - 1] = Q
+                delta_p = 8 * mu * Ln * Q / (np.pi * r ** 4)
+            else:
+                Q = 0.0
+                Q_history[i - 1] = 0.0
+                delta_p = 0.0
+
+            if v_rel > 0:
+                forces[-2] += -np.sign(forces[-2]) * F_friction + A_p * delta_p + C_p * v[-2, i - 1]
+            else:
+                forces[-2] += -np.sign(forces[-2]) * F_friction
+        else:
+            # stick: move as combined mass (simplified)
+            pass
+
+        a[:, i] = np.linalg.solve(m, forces)
+        v[:, i] = v[:, i - 1] + dt * a[:, i]
+        u[:, i] = u[:, i - 1] + dt * v[:, i]
+        v[0, i] = 0.0
+        u[0, i] = 0.0
+
+    end_phase1 = i - 1
+
+    # ---------------------------
+    # Phase 2: entering skin
+    # ---------------------------
+    if injection_phase == 0:
+        phase = 2
+        for i in range(end_phase1, N):
+            if u[-1, i - 1] >= df:
+                break
+
+            z = s * (u[-1, i - 1] - ds - u_puncture)
+            A_DD[-1, -1] = -mu_s * np.tanh(z)
+            B_DD[-1] = (-A_p * eta / L * (v[-1, i - 1] - v[-2, i - 1])
+                        + ds * mu_s * np.tanh(z)
+                        + f_max * (1 - np.tanh(z)))
+            B_DD[-2] = k * l + A_p * eta / L * (v[-1, i - 1] - v[-2, i - 1])
+
+            forces = A_DD @ u[:, i - 1] + B_DD
+
+            if abs(forces[-2]) >= F_friction:
+                v_rel = v[-2, i - 1] - v[-1, i - 1]
+
+                # phase 2: no injection
+                if injection_allowed(phase):
+                    Q = max(v_rel * A_p, 0.0)
+                    total_volume += Q * dt
+                    Q_history[i - 1] = Q
+                    delta_p = 8 * mu * Ln * Q / (np.pi * r ** 4)
+                else:
+                    Q = 0.0
+                    Q_history[i - 1] = 0.0
+                    delta_p = 0.0
+
+                if v_rel > 0:
+                    forces[-2] += -np.sign(forces[-2]) * F_friction + A_p * delta_p + C_p * v[-2, i - 1]
+                else:
+                    forces[-2] += -np.sign(forces[-2]) * F_friction
+            else:
+                pass
+
+            a[:, i] = np.linalg.solve(m, forces)
+            v[:, i] = v[:, i - 1] + dt * a[:, i]
+            u[:, i] = u[:, i - 1] + dt * v[:, i]
+            v[0, i] = 0.0
+            u[0, i] = 0.0
+
+    end_phase2 = i - 1
+
+    # ---------------------------
+    # Phase 3: through fat
+    # ---------------------------
+    if injection_phase == 0:
+        phase = 3
+        for i in range(end_phase2, N):
+            if u[-1, i - 1] >= dm:
+                break
+
+            A_DD[-1, -1] = -mu_f
+            B_DD[-1] = (-A_p * eta / L * (v[-1, i - 1] - v[-2, i - 1])
+                        - mu_s * (df - ds) + mu_f * df)
+            B_DD[-2] = k * l + A_p * eta / L * (v[-1, i - 1] - v[-2, i - 1])
+
+            forces = A_DD @ u[:, i - 1] + B_DD
+
+            if abs(forces[-2]) >= F_friction:
+                v_rel = v[-2, i - 1] - v[-1, i - 1]
+
+                # phase 3: no injection
+                if injection_allowed(phase):
+                    Q = max(v_rel * A_p, 0.0)
+                    total_volume += Q * dt
+                    Q_history[i - 1] = Q
+                    delta_p = 8 * mu * Ln * Q / (np.pi * r ** 4)
+                else:
+                    Q = 0.0
+                    Q_history[i - 1] = 0.0
+                    delta_p = 0.0
+
+                if v_rel > 0:
+                    forces[-2] += -np.sign(forces[-2]) * F_friction + A_p * delta_p + C_p * v[-2, i - 1]
+                else:
+                    forces[-2] += -np.sign(forces[-2]) * F_friction
+            else:
+                pass
+
+            a[:, i] = np.linalg.solve(m, forces)
+            v[:, i] = v[:, i - 1] + dt * a[:, i]
+            u[:, i] = u[:, i - 1] + dt * v[:, i]
+            v[0, i] = 0.0
+            u[0, i] = 0.0
+
+    end_phase3 = i - 1
+
+    # ---------------------------
+    # Phase 4: in muscle, moving to injection depth
+    # ---------------------------
+    if injection_phase == 0:
+        phase = 4
+        for i in range(end_phase3, N):
+            if u[-1, i - 1] >= di:
+                break
+
+            A_DD[-1, -1] = -mu_m
+            B_DD[-1] = (-A_p * eta / L * (v[-1, i - 1] - v[-2, i - 1])
+                        - mu_s * (df - ds)
+                        - mu_f * (dm - df)
+                        + mu_m * dm)
+            B_DD[-2] = k * l + A_p * eta / L * (v[-1, i - 1] - v[-2, i - 1])
+
+            forces = A_DD @ u[:, i - 1] + B_DD
+
+            if abs(forces[-2]) >= F_friction:
+                v_rel = v[-2, i - 1] - v[-1, i - 1]
+
+                # phase 4: no injection
+                if injection_allowed(phase):
+                    Q = max(v_rel * A_p, 0.0)
+                    total_volume += Q * dt
+                    Q_history[i - 1] = Q
+                    delta_p = 8 * mu * Ln * Q / (np.pi * r ** 4)
+                else:
+                    Q = 0.0
+                    Q_history[i - 1] = 0.0
+                    delta_p = 0.0
+
+                if v_rel > 0:
+                    forces[-2] += -np.sign(forces[-2]) * F_friction + A_p * delta_p + C_p * v[-2, i - 1]
+                else:
+                    forces[-2] += -np.sign(forces[-2]) * F_friction
+            else:
+                pass
+
+            a[:, i] = np.linalg.solve(m, forces)
+            v[:, i] = v[:, i - 1] + dt * a[:, i]
+            u[:, i] = u[:, i - 1] + dt * v[:, i]
+            v[0, i] = 0.0
+            u[0, i] = 0.0
+
+    end_phase4 = i - 1
+
+    # ---------------------------
+    # Phase 5: Final injection phase (ONLY here we inject)
+    # ---------------------------
+    if injection_phase == 0:
+        phase = 5
+        for i in range(end_phase4, N):
+            if total_volume >= volume_of_fluid:
+                injection_phase = 5
+                break
+            else:
+                Q_prev = Q_history[i - 1]
+                delta_p = 8 * mu * Ln * Q_prev / (np.pi * r ** 4)
+
+                # keep barrel stationary; plunger moves relative to it
+                B_DD[-2] = (A_p * eta / L * (v[-1, i - 1] - v[-2, i - 1])
+                            + Nf * mu_k + A_p * delta_p
+                            + C_p * v[-2, i - 1] + k * l)
+                B_DD[-1] = 0.0
+                A_DD[-1, -1] = 0.0
+
+                forces = A_DD @ u[:, i - 1] + B_DD
+
+                # slip condition at plunger
+                if abs(forces[-2]) >= F_friction:
+                    forces[-2] -= np.sign(forces[-2]) * F_friction
+                    v_rel = v[-2, i - 1] - v[-1, i - 1]
+
+                    # phase 5: injection allowed
+                    if injection_allowed(phase):
+                        Q = max(v_rel * A_p, 0.0)
+                        total_volume += Q * dt
+                        Q_history[i - 1] = Q
+                    else:
+                        Q_history[i - 1] = 0.0
+
+                # internal DOFs (excluding barrel)
+                forces_internal = A_DD[:-1, :-1] @ u[:-1, i - 1] + B_DD[:-1]
+                a_internal = np.linalg.solve(m[:-1, :-1], forces_internal)
+                v[:-1, i] = v[:-1, i - 1] + dt * a_internal
+                u[:-1, i] = u[:-1, i - 1] + dt * v[:-1, i]
+
+                # barrel fixed
+                v[-1, i] = 0.0
+                u[-1, i] = u[-1, end_phase4 - 1]
+
+                # first mass fixed
+                v[0, i] = 0.0
+                u[0, i] = 0.0
+
+    end_phase5 = i - 1
+
+    injection_time = dt * end_phase5
+    final_volume = total_volume
+
+    return injection_time, final_volume, injection_phase, Q_history
+
+
+
+Ln_fixed = 16e-3          # 16.00 mm
+k_factors = np.linspace(0.5, 2.0, 8)
+
+results_time = np.zeros_like(k_factors)
+results_volume = np.zeros_like(k_factors)
+results_phase = np.zeros_like(k_factors)
+
+print("Parameter sweep with fixed needle length = 16.00 mm (injection ONLY in phase 5) ...")
+for i_k, k_factor in enumerate(k_factors):
+    print(f"  k_factor={k_factor:.2f}, Ln={Ln_fixed*1000:.2f} mm")
+    T, V, phase, _ = run_simulation(k_factor, Ln_fixed)
+    results_time[i_k] = T
+    results_volume[i_k] = V
+    results_phase[i_k] = phase
+
+# Plot 1: injection time vs k_factor
+plt.figure(figsize=(6, 4))
+plt.plot(k_factors, results_time, marker='o')
+plt.xlabel("Spring Constant Factor k_factor")
+plt.ylabel("Injection Time (s)")
+plt.title(f"Injection Time vs k_factor\n(Needle Length = {Ln_fixed*1000:.2f} mm)")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Plot 2: final injected volume vs k_factor
+plt.figure(figsize=(6, 4))
+plt.plot(k_factors, results_volume * 1e6, marker='o')
+plt.xlabel("Spring Constant Factor k_factor")
+plt.ylabel("Injected Volume (µL)")
+plt.title(f"Injected Volume vs k_factor\n(Needle Length = {Ln_fixed*1000:.2f} mm)")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# Plot 3: injection phase vs k_factor (should be 5 or 0)
+plt.figure(figsize=(6, 4))
+plt.plot(k_factors, results_phase, marker='o')
+plt.xlabel("Spring Constant Factor k_factor")
+plt.ylabel("Injection Phase (1–5)")
+plt.title(f"Injection Phase vs k_factor\n(Needle Length = {Ln_fixed*1000:.2f} mm)")
+plt.yticks([0, 1, 2, 3, 4, 5])
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+
+k_demo = 1.0   # you can change this to any value in k_factors
+T_demo, V_demo, phase_demo, Q_hist_demo = run_simulation(k_demo, Ln_fixed)
+
+dt = 1e-6
+N_demo = len(Q_hist_demo)
+t_demo = np.arange(N_demo) * dt
+vol_demo = np.cumsum(Q_hist_demo) * dt  # [m^3]
+
+idx_end = int(T_demo / dt)
+if idx_end <= 0 or idx_end > N_demo:
+    idx_end = N_demo
+
+plt.figure(figsize=(7, 5))
+plt.plot(t_demo[:idx_end], vol_demo[:idx_end] * 1e6)
+plt.xlabel("Time (s)")
+plt.ylabel("Injected Volume (µL)")
+plt.title(
+    "Volume Injected over Time\n"
+    f"(k_factor={k_demo:.2f}, Needle Length={Ln_fixed*1000:.2f} mm)"
+)
+plt.grid(True)
+plt.tight_layout()
+plt.show()

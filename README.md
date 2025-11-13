@@ -42,13 +42,7 @@ The models in this repository simulate the dynamic behavior of the EpiPen’s in
 Each script corresponds to a different modeling approach or parameter study.
 
 ---
-
-## 🧠 Technical Highlights
-
-- Includes both **explicit** and **implicit** time integration methods  
-- Supports **Kelvin–Voigt viscoelastic modeling**  
-- Implements **parameter sweep scripts** for optimization  
-- Produces time histories, force–displacement plots, and injection dynamics visualizations  
+ 
 
 ---
 

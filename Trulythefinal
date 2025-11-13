@@ -1,0 +1,231 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+def run_simulation(k_factor, Ln_value):
+    """
+    Injection happens ONLY in Phase 5.
+    Return:
+        injection_time [s], final_volume [m^3], injection_phase (5 if completed),
+        Q_history [m^3/s], x_hist [m]  <-- NEW: plunger displacement history
+    """
+    # ---------------- common params ----------------
+    n = 10
+    k = k_factor * 1500 * (n - 2)
+    l = 60e-3 / (n - 2)
+    mass = 1.8e-3 / (n - 2)
+
+    ds = 1e-3
+    df = ds + 1.55e-3
+    dm = df + 10e-3
+    di = 16e-3
+
+    mu_s, mu_f, mu_m = 1000, 20000, 100000
+
+    Mp, Ms = 0.002, 0.01
+    m = np.diag([mass]*(n-2) + [Mp] + [Ms])
+
+    eta = 10000
+    Nf = 8
+    mu_k = 0.5
+    C_p = 0.033
+    A_p = 5.88e-5
+    volume_of_fluid = 0.3e-6
+    mu = 0.00089
+    Ln = Ln_value
+    r = 0.205e-3
+    L = 34e-3
+
+    F_friction = Nf * mu_k
+    f_max = 150000
+    u_puncture = 2.2e-3
+    s_tanh = 1.0
+
+    A_DD = np.zeros((n, n))
+    for idx in range(n):
+        if idx == 0:
+            A_DD[idx, idx] = -k
+            A_DD[idx, idx + 1] = k
+        elif idx == n - 2:
+            A_DD[idx, idx] = -k
+            A_DD[idx, idx - 1] = k
+        elif idx == n - 1:
+            continue
+        else:
+            A_DD[idx, idx] = -2*k
+            A_DD[idx, idx - 1] = k
+            A_DD[idx, idx + 1] = k
+
+    B_DD = np.zeros(n)
+    B_DD[0] = k*l
+
+    dt = 2e-6
+    N  = 800_000
+
+    u = np.zeros((n, N))
+    v = np.zeros((n, N))
+    a = np.zeros((n, N))
+
+    total_volume = 0.0
+    Q_history = np.zeros(N)
+    x_hist = np.zeros(N)
+
+    injection_phase = 0
+
+    def step_integrate(forces, i):
+        a[:, i] = np.linalg.solve(m, forces)
+        v[:, i] = v[:, i-1] + dt*a[:, i]
+        u[:, i] = u[:, i-1] + dt*v[:, i]
+        v[0, i] = 0.0; u[0, i] = 0.0
+
+    # ---- Phase 1 ----
+    for i in range(1, N):
+        if u[-1, i-1] >= ds: break
+        B_DD[-2] = k*l + A_p*eta/L*(v[-1, i-1]-v[-2, i-1])
+        B_DD[-1] = -A_p*eta/L*(v[-1, i-1]-v[-2, i-1])
+        forces = A_DD @ u[:, i-1] + B_DD
+        if abs(forces[-2]) >= F_friction:
+            v_rel = v[-2, i-1] - v[-1, i-1]
+            Q_history[i-1] = 0.0
+            forces[-2] += -np.sign(forces[-2])*F_friction + (C_p*v[-2, i-1] if v_rel>0 else 0.0)
+        step_integrate(forces, i)
+    end1 = i-1
+
+    # ---- Phase 2 ----
+    for i in range(end1, N):
+        if u[-1, i-1] >= df: break
+        z = s_tanh*(u[-1, i-1]-ds-u_puncture)
+        A_DD[-1, -1] = -mu_s*np.tanh(z)
+        B_DD[-1] = -A_p*eta/L*(v[-1, i-1]-v[-2, i-1]) + ds*mu_s*np.tanh(z) + f_max*(1-np.tanh(z))
+        B_DD[-2] = k*l + A_p*eta/L*(v[-1, i-1]-v[-2, i-1])
+        forces = A_DD @ u[:, i-1] + B_DD
+        if abs(forces[-2]) >= F_friction:
+            v_rel = v[-2, i-1] - v[-1, i-1]
+            Q_history[i-1] = 0.0
+            forces[-2] += -np.sign(forces[-2])*F_friction + (C_p*v[-2, i-1] if v_rel>0 else 0.0)
+        step_integrate(forces, i)
+    end2 = i-1
+
+    # ---- Phase 3 ----
+    for i in range(end2, N):
+        if u[-1, i-1] >= dm: break
+        A_DD[-1, -1] = -mu_f
+        B_DD[-1] = -A_p*eta/L*(v[-1, i-1]-v[-2, i-1]) - mu_s*(df-ds) + mu_f*df
+        B_DD[-2] = k*l + A_p*eta/L*(v[-1, i-1]-v[-2, i-1])
+        forces = A_DD @ u[:, i-1] + B_DD
+        if abs(forces[-2]) >= F_friction:
+            v_rel = v[-2, i-1] - v[-1, i-1]
+            Q_history[i-1] = 0.0
+            forces[-2] += -np.sign(forces[-2])*F_friction + (C_p*v[-2, i-1] if v_rel>0 else 0.0)
+        step_integrate(forces, i)
+    end3 = i-1
+
+    # ---- Phase 4 ----
+    for i in range(end3, N):
+        if u[-1, i-1] >= di: break
+        A_DD[-1, -1] = -mu_m
+        B_DD[-1] = -A_p*eta/L*(v[-1, i-1]-v[-2, i-1]) - mu_s*(df-ds) - mu_f*(dm-df) + mu_m*dm
+        B_DD[-2] = k*l + A_p*eta/L*(v[-1, i-1]-v[-2, i-1])
+        forces = A_DD @ u[:, i-1] + B_DD
+        if abs(forces[-2]) >= F_friction:
+            v_rel = v[-2, i-1] - v[-1, i-1]
+            Q_history[i-1] = 0.0
+            forces[-2] += -np.sign(forces[-2])*F_friction + (C_p*v[-2, i-1] if v_rel>0 else 0.0)
+        step_integrate(forces, i)
+    end4 = i-1
+
+    # ---- Phase 5 (only here we inject) ----
+    R_h = 8.0*mu*Ln/(np.pi*r**4)
+    c_h = (A_p**2)*R_h
+    c_tot = c_h + C_p + (A_p*eta/L)
+
+    C_ch = 1.0e-11
+
+    p = 0.0
+    x_p = 0.0
+    F0  = max(k*l, 0.0)
+    k_eff = k
+
+    for i in range(end4, N):
+        if total_volume >= volume_of_fluid:
+            injection_phase = 5
+            break
+
+        F_spring = max(F0 - k_eff*x_p, 0.0)
+        F_avail  = F_spring - F_friction - A_p*p
+        if F_avail < 0.0:
+            F_avail = 0.0
+
+        v_rel = F_avail / c_tot
+
+        # pressure ODE (overdamped gate)
+        p += dt * (A_p*v_rel - p/R_h) / C_ch
+        if p < 0.0: p = 0.0
+
+        Q = p / R_h
+        total_volume += Q * dt
+        Q_history[i] = Q
+
+        x_p += v_rel * dt
+        x_hist[i] = x_p
+
+        if total_volume >= volume_of_fluid:
+            injection_phase = 5
+            break
+
+    end5 = i
+    return dt*end5, total_volume, injection_phase, Q_history, x_hist
+
+
+Ln_fixed = 16e-3
+k_factors = np.linspace(0.5, 2.0, 8)
+
+results_time   = np.zeros_like(k_factors)
+results_volume = np.zeros_like(k_factors)
+results_phase  = np.zeros_like(k_factors)
+
+print(f"Sweeping k_factor with needle length = {Ln_fixed*1000:.2f} mm ...")
+for i, kf in enumerate(k_factors):
+    T, V, ph, _, _ = run_simulation(kf, Ln_fixed)
+    results_time[i]   = T
+    results_volume[i] = V
+    results_phase[i]  = ph
+
+plt.figure(figsize=(6,4))
+plt.plot(k_factors, results_time, marker='o')
+plt.xlabel("Spring Constant Factor k_factor"); plt.ylabel("Injection Time (s)")
+plt.title(f"Injection Time vs k_factor\n(Needle Length = {Ln_fixed*1000:.2f} mm)")
+plt.grid(True); plt.tight_layout(); plt.show()
+
+plt.figure(figsize=(6,4))
+plt.plot(k_factors, results_volume*1e6, marker='o')
+plt.xlabel("Spring Constant Factor k_factor"); plt.ylabel("Injected Volume (µL)")
+plt.title(f"Injected Volume vs k_factor\n(Needle Length = {Ln_fixed*1000:.2f} mm)")
+plt.grid(True); plt.tight_layout(); plt.show()
+
+plt.figure(figsize=(6,4))
+plt.plot(k_factors, results_phase, marker='o')
+plt.xlabel("Spring Constant Factor k_factor"); plt.ylabel("Injection Phase (1–5)")
+plt.title(f"Injection Phase vs k_factor\n(Needle Length = {Ln_fixed*1000:.2f} mm)")
+plt.yticks([0,1,2,3,4,5]); plt.grid(True); plt.tight_layout(); plt.show()
+
+k_demo = 1.0
+T_demo, V_demo, phase_demo, Q_hist_demo, x_hist_demo = run_simulation(k_demo, Ln_fixed)
+dt = 2e-6
+t = np.arange(len(Q_hist_demo))*dt
+Vt = np.cumsum(Q_hist_demo)*dt
+idx_end = max(1, min(len(t)-1, int(T_demo/dt)))
+
+# Volume over time
+plt.figure(figsize=(7,5))
+plt.plot(t[:idx_end], Vt[:idx_end]*1e6, lw=2)
+plt.xlabel("Time (s)"); plt.ylabel("Injected Volume (µL)")
+plt.title(f"Volume Injected over Time\n(k_factor={k_demo:.2f}, Needle Length={Ln_fixed*1000:.2f} mm)")
+plt.grid(True); plt.tight_layout(); plt.show()
+
+# Displacement of plunger over time (NEW)
+plt.figure(figsize=(7,5))
+plt.plot(t[:idx_end], x_hist_demo[:idx_end]*1e3, lw=2)   # m -> mm
+plt.xlabel("Time (s)"); plt.ylabel("Plunger Displacement (mm)")
+plt.title(f"Plunger Displacement over Time\n(k_factor={k_demo:.2f}, Needle Length={Ln_fixed*1000:.2f} mm)")
+plt.grid(True); plt.tight_layout(); plt.show()
